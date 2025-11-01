@@ -1,6 +1,6 @@
 # gcutil - Google Cloud VM CLI Tool
 
-A command-line tool built with Cobra for managing Google Cloud VM instances. Mostly written with Claude Code as an experiment for AI.
+A command-line tool built with Cobra for managing Google Cloud VM instances. Mostly written with Claude Code as an experiment for AI assisted software development.
 
 ## Features
 
@@ -22,6 +22,16 @@ go install .
 
 ## Usage
 
+### Available Commands
+
+- `auth` - Authenticate with Google Cloud
+- `list` - List all VMs in Google Cloud projects
+- `ssh` - SSH to a Google Cloud VM instance
+- `scp` - SCP to/from a Google Cloud VM instance
+- `addkey` - Add user with SSH key to a Google cloud instance
+- `completion` - Generate autocompletion script for your shell
+- `help` - Help about any command
+
 ### Authenticate
 
 Note: Authentication is not necessary. If you are not authenticated or the token needs refreshing, a URL to authenticate will be printed on the CLI. You can click on the link in most terminal emulators, or copy it into your web browser and use it that way.
@@ -35,19 +45,44 @@ The token is saved to `token.json`.
 ### List VMs
 
 ```bash
-./gcutil list-vms
+./gcutil list
 ```
 
-List all projects in a given project:
+List all VMs in a specific project:
 
 ```bash
-./gcutil list-vms cicd-project-id
+./gcutil list your-project-id
 ```
 
-Or using the project flag short flag:
+Or using the project flag:
 
 ```bash
-./gcutil list-vms -p your-project-id
+./gcutil list -p your-project-id
+```
+
+### SSH to a VM
+
+```bash
+./gcutil ssh INSTANCE_NAME
+./gcutil ssh PROJECT.INSTANCE_NAME
+./gcutil ssh INSTANCE_NAME -- -L 8080:localhost:8080  # Pass additional SSH args
+```
+
+### SCP to/from a VM
+
+```bash
+./gcutil scp LOCAL_FILE INSTANCE_NAME:REMOTE_PATH
+./gcutil scp INSTANCE_NAME:REMOTE_PATH LOCAL_FILE
+./gcutil scp PROJECT.INSTANCE_NAME:REMOTE_PATH LOCAL_FILE
+```
+
+### Add SSH Key to a VM
+
+```bash
+./gcutil addkey INSTANCE_NAME USERNAME KEY
+./gcutil addkey INSTANCE_NAME USERNAME -f ~/.ssh/id_rsa.pub
+./gcutil addkey -i INSTANCE_NAME -u USERNAME -k "ssh-rsa AAAA..."
+./gcutil addkey -i INSTANCE_NAME -u USERNAME -f ~/.ssh/id_rsa.pub -p PROJECT_ID -z ZONE
 ```
 
 ## Example Output
