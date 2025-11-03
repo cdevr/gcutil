@@ -10,6 +10,22 @@ import (
 	"google.golang.org/api/compute/v1"
 )
 
+// captureOutput runs the given function and returns its stdout output as a string
+func captureOutput(f func()) string {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	f()
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	return buf.String()
+}
+
 func TestGetZoneFromURL(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -77,21 +93,10 @@ func TestGetMachineTypeFromURL(t *testing.T) {
 }
 
 func TestDisplayInstancesEmpty(t *testing.T) {
-	// Capture stdout
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
 	instances := []*compute.Instance{}
-	displayInstances(instances, "test-project")
-
-	// Restore stdout
-	w.Close()
-	os.Stdout = old
-
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	output := buf.String()
+	output := captureOutput(func() {
+		displayInstances(instances, "test-project")
+	})
 
 	// Verify output contains expected message
 	if !strings.Contains(output, "No instances found") {
@@ -100,11 +105,6 @@ func TestDisplayInstancesEmpty(t *testing.T) {
 }
 
 func TestDisplayInstancesWithData(t *testing.T) {
-	// Capture stdout
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
 	instances := []*compute.Instance{
 		{
 			Name:        "test-vm-1",
@@ -135,15 +135,9 @@ func TestDisplayInstancesWithData(t *testing.T) {
 		},
 	}
 
-	displayInstances(instances, "test-project")
-
-	// Restore stdout
-	w.Close()
-	os.Stdout = old
-
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	output := buf.String()
+	output := captureOutput(func() {
+		displayInstances(instances, "test-project")
+	})
 
 	// Verify output contains expected data
 	expectedStrings := []string{
@@ -169,11 +163,6 @@ func TestDisplayInstancesWithData(t *testing.T) {
 }
 
 func TestDisplayInstancesNoNetworkInterface(t *testing.T) {
-	// Capture stdout
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
 	instances := []*compute.Instance{
 		{
 			Name:              "test-vm-no-network",
@@ -184,15 +173,9 @@ func TestDisplayInstancesNoNetworkInterface(t *testing.T) {
 		},
 	}
 
-	displayInstances(instances, "test-project")
-
-	// Restore stdout
-	w.Close()
-	os.Stdout = old
-
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	output := buf.String()
+	output := captureOutput(func() {
+		displayInstances(instances, "test-project")
+	})
 
 	// Verify output contains VM name and status, but empty IPs
 	if !strings.Contains(output, "test-vm-no-network") {
