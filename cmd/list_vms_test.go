@@ -1,6 +1,10 @@
 package cmd
 
 import (
+	"bytes"
+	"io"
+	"os"
+	"strings"
 	"testing"
 
 	"google.golang.org/api/compute/v1"
@@ -73,14 +77,34 @@ func TestGetMachineTypeFromURL(t *testing.T) {
 }
 
 func TestDisplayInstancesEmpty(t *testing.T) {
-	// Test that displayInstances doesn't panic with empty list
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
 	instances := []*compute.Instance{}
 	displayInstances(instances, "test-project")
-	// If we reach here without panic, test passes
+
+	// Restore stdout
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	output := buf.String()
+
+	// Verify output contains expected message
+	if !strings.Contains(output, "No instances found") {
+		t.Errorf("Expected 'No instances found' in output, got: %s", output)
+	}
 }
 
 func TestDisplayInstancesWithData(t *testing.T) {
-	// Test that displayInstances doesn't panic with valid data
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
 	instances := []*compute.Instance{
 		{
 			Name:        "test-vm-1",
@@ -111,13 +135,45 @@ func TestDisplayInstancesWithData(t *testing.T) {
 		},
 	}
 
-	// This test ensures the function doesn't panic
 	displayInstances(instances, "test-project")
-	// If we reach here without panic, test passes
+
+	// Restore stdout
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	output := buf.String()
+
+	// Verify output contains expected data
+	expectedStrings := []string{
+		"test-vm-1",
+		"test-vm-2",
+		"us-central1-a",
+		"us-west1-b",
+		"n1-standard-1",
+		"e2-medium",
+		"RUNNING",
+		"TERMINATED",
+		"10.0.0.1",
+		"10.0.0.2",
+		"35.1.2.3",
+		"Total instances: 2",
+	}
+
+	for _, expected := range expectedStrings {
+		if !strings.Contains(output, expected) {
+			t.Errorf("Expected '%s' in output, got: %s", expected, output)
+		}
+	}
 }
 
 func TestDisplayInstancesNoNetworkInterface(t *testing.T) {
-	// Test that displayInstances handles instances without network interfaces
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
 	instances := []*compute.Instance{
 		{
 			Name:              "test-vm-no-network",
@@ -128,7 +184,24 @@ func TestDisplayInstancesNoNetworkInterface(t *testing.T) {
 		},
 	}
 
-	// This test ensures the function doesn't panic when there are no network interfaces
 	displayInstances(instances, "test-project")
-	// If we reach here without panic, test passes
+
+	// Restore stdout
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	output := buf.String()
+
+	// Verify output contains VM name and status, but empty IPs
+	if !strings.Contains(output, "test-vm-no-network") {
+		t.Errorf("Expected 'test-vm-no-network' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "STOPPED") {
+		t.Errorf("Expected 'STOPPED' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "Total instances: 1") {
+		t.Errorf("Expected 'Total instances: 1' in output, got: %s", output)
+	}
 }
