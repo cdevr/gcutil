@@ -1,4 +1,4 @@
-package cmd
+package auth
 
 import (
 	"context"
@@ -8,13 +8,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/compute/v1"
 )
 
-func getConfigDir() (string, error) {
+func GetConfigDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -29,22 +28,15 @@ func getConfigDir() (string, error) {
 	return configDir, nil
 }
 
-var getTokenFile = func() (string, error) {
-	configDir, err := getConfigDir()
+var GetTokenFile = func() (string, error) {
+	configDir, err := GetConfigDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(configDir, "token.json"), nil
 }
 
-var authCmd = &cobra.Command{
-	Use:   "auth",
-	Short: "Authenticate with Google Cloud",
-	Long:  `Authenticate with Google Cloud using OAuth2 web flow.`,
-	RunE:  runAuth,
-}
-
-func runAuth(cmd *cobra.Command, args []string) error {
+func RunAuth() error {
 	ctx := context.Background()
 
 	// Use Google's built-in OAuth2 client credentials
@@ -102,7 +94,7 @@ func runAuth(cmd *cobra.Command, args []string) error {
 	}
 
 	// Save token to file
-	if err := saveToken(token); err != nil {
+	if err := SaveToken(token); err != nil {
 		return fmt.Errorf("failed to save token: %w", err)
 	}
 
@@ -110,8 +102,8 @@ func runAuth(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func saveToken(token *oauth2.Token) error {
-	tokenFile, err := getTokenFile()
+func SaveToken(token *oauth2.Token) error {
+	tokenFile, err := GetTokenFile()
 	if err != nil {
 		return err
 	}
@@ -124,8 +116,8 @@ func saveToken(token *oauth2.Token) error {
 	return json.NewEncoder(f).Encode(token)
 }
 
-func loadToken() (*oauth2.Token, error) {
-	tokenFile, err := getTokenFile()
+func LoadToken() (*oauth2.Token, error) {
+	tokenFile, err := GetTokenFile()
 	if err != nil {
 		return nil, err
 	}
@@ -141,20 +133,31 @@ func loadToken() (*oauth2.Token, error) {
 	return token, err
 }
 
-// loadOrAuthToken loads the token, and if it fails, triggers authentication
-func loadOrAuthToken(cmd *cobra.Command) (*oauth2.Token, error) {
-	token, err := loadToken()
+// LoadOrAuthToken loads the token, and if it fails, triggers authentication
+func LoadOrAuthToken() (*oauth2.Token, error) {
+	token, err := LoadToken()
 	if err != nil {
 		// Token doesn't exist or failed to load, authenticate
 		fmt.Println("No valid token found. Authenticating...")
-		if err := runAuth(cmd, nil); err != nil {
+		if err := RunAuth(); err != nil {
 			return nil, fmt.Errorf("authentication failed: %w", err)
 		}
 		// Load the newly created token
-		token, err = loadToken()
+		token, err = LoadToken()
 		if err != nil {
 			return nil, fmt.Errorf("failed to load token after authentication: %w", err)
 		}
 	}
 	return token, nil
+}
+
+func GetOAuth2Config() *oauth2.Config {
+	return &oauth2.Config{
+		ClientID:     "32555940559.apps.googleusercontent.com",
+		ClientSecret: "ZmssLNjJy2998hD4CTg2ejr2",
+		Endpoint:     google.Endpoint,
+		Scopes: []string{
+			compute.CloudPlatformScope,
+		},
+	}
 }

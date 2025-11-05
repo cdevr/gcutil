@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"context"
@@ -6,12 +6,11 @@ import (
 	"os"
 	"strings"
 
+	"gcutil/internal/auth"
+	"gcutil/internal/compute"
+
 	"github.com/spf13/cobra"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/cloudresourcemanager/v1"
-	"google.golang.org/api/compute/v1"
-	"google.golang.org/api/option"
+	computepb "google.golang.org/api/compute/v1"
 )
 
 var (
@@ -91,119 +90,46 @@ func runAddkey(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load token, authenticate if needed
-	token, err := loadOrAuthToken(cmd)
+	token, err := auth.LoadOrAuthToken()
 	if err != nil {
 		return err
 	}
 
 	// Create OAuth2 config
-	config := &oauth2.Config{
-		ClientID:     "32555940559.apps.googleusercontent.com",
-		ClientSecret: "ZmssLNjJy2998hD4CTg2ejr2",
-		Endpoint:     google.Endpoint,
-		Scopes: []string{
-			compute.CloudPlatformScope,
-		},
-	}
+	config := auth.GetOAuth2Config()
 
-	// Create token source that automatically refreshes
-	tokenSource := config.TokenSource(ctx, token)
-
-	// Get a fresh token (this will refresh if expired)
-	freshToken, err := tokenSource.Token()
+	// Create compute and CRM services
+	computeService, crmService, err := compute.CreateServices(ctx, config, token, auth.SaveToken)
 	if err != nil {
-		// Token refresh failed - need to reauthenticate
-		fmt.Fprintf(os.Stderr, "Token refresh failed: %v\n", err)
-		fmt.Println("Reauthenticating...")
-
-		if err := runAuth(cmd, nil); err != nil {
-			return fmt.Errorf("reauthentication failed: %w", err)
-		}
-
-		// Load the new token
-		token, err = loadToken()
-		if err != nil {
-			return fmt.Errorf("failed to load token after reauthentication: %w", err)
-		}
-
-		// Recreate token source with new token
-		tokenSource = config.TokenSource(ctx, token)
-		freshToken, err = tokenSource.Token()
-		if err != nil {
-			return fmt.Errorf("failed to get token after reauthentication: %w", err)
-		}
-	}
-
-	// Save the refreshed token
-	if freshToken.AccessToken != token.AccessToken {
-		if err := saveToken(freshToken); err != nil {
-			// Non-fatal - just log it
-			fmt.Fprintf(os.Stderr, "Warning: failed to save refreshed token: %v\n", err)
-		}
-	}
-
-	// Create compute service
-	computeService, err := compute.NewService(ctx, option.WithTokenSource(tokenSource))
-	if err != nil {
-		return fmt.Errorf("failed to create compute service: %w", err)
+		return err
 	}
 
 	// If zone is not specified, find it by searching for the instance
 	if sshZone == "" {
 		fmt.Printf("Zone not specified, searching for instance %s...\n", sshInstanceID)
 
-		var projectsToSearch []*cloudresourcemanager.Project
-
-		// Get Cloud Resource Manager service to resolve project names
-		crmService, err := cloudresourcemanager.NewService(ctx, option.WithTokenSource(tokenSource))
+		// Determine which projects to search
+		projectsToSearch, err := resolveProjectsToSearch(crmService, sshProjectID)
 		if err != nil {
-			return fmt.Errorf("failed to create resource manager service: %w", err)
-		}
-
-		// If project is specified, resolve it and search only that project
-		if sshProjectID != "" {
-			// Get all projects to find matching name or ID
-			allProjects, err := getAllProjects(crmService)
-			if err != nil {
-				return fmt.Errorf("failed to list projects: %w", err)
-			}
-
-			// Find project by name or ID
-			for _, proj := range allProjects {
-				if proj.ProjectId == sshProjectID || proj.Name == sshProjectID {
-					projectsToSearch = []*cloudresourcemanager.Project{proj}
-					sshProjectID = proj.ProjectId // Use the actual project ID
-					break
-				}
-			}
-
-			if len(projectsToSearch) == 0 {
-				return fmt.Errorf("project %s not found", sshProjectID)
-			}
-		} else {
-			// Search all projects
-			projectsToSearch, err = getAllProjects(crmService)
-			if err != nil {
-				return fmt.Errorf("failed to list projects: %w", err)
-			}
+			return err
 		}
 
 		// Search for the instance across projects/zones
-		var foundInstance *compute.Instance
+		var foundInstance *computepb.Instance
 		var foundProject string
 		var foundZone string
 
 		for _, proj := range projectsToSearch {
 			// Use aggregated list to search all zones at once
 			req := computeService.Instances.AggregatedList(proj.ProjectId)
-			err := req.Pages(ctx, func(page *compute.InstanceAggregatedList) error {
+			err := req.Pages(ctx, func(page *computepb.InstanceAggregatedList) error {
 				for zone, instancesScopedList := range page.Items {
 					for _, instance := range instancesScopedList.Instances {
 						if instance.Name == sshInstanceID {
 							foundInstance = instance
 							foundProject = proj.ProjectId
 							// Extract zone from the key (e.g., "zones/us-central1-a")
-							foundZone = getZoneFromURL(zone)
+							foundZone = compute.GetZoneFromURL(zone)
 							return fmt.Errorf("found") // Break out of pagination
 						}
 					}
@@ -242,7 +168,7 @@ func runAddkey(cmd *cobra.Command, args []string) error {
 	sshKeyEntry := fmt.Sprintf("%s:%s", sshUsername, publicKey)
 
 	// Find or create ssh-keys metadata item
-	var sshKeysItem *compute.MetadataItems
+	var sshKeysItem *computepb.MetadataItems
 	for _, item := range instance.Metadata.Items {
 		if item.Key == "ssh-keys" {
 			sshKeysItem = item
@@ -252,7 +178,7 @@ func runAddkey(cmd *cobra.Command, args []string) error {
 
 	if sshKeysItem == nil {
 		// No existing ssh-keys, create new
-		sshKeysItem = &compute.MetadataItems{
+		sshKeysItem = &computepb.MetadataItems{
 			Key:   "ssh-keys",
 			Value: &sshKeyEntry,
 		}
@@ -301,35 +227,11 @@ func runAddkey(cmd *cobra.Command, args []string) error {
 
 	// Wait for the operation to complete
 	fmt.Printf("Updating instance metadata (operation: %s)...\n", op.Name)
-	err = waitForOperation(computeService, sshProjectID, sshZone, op.Name)
+	err = compute.WaitForOperation(computeService, sshProjectID, sshZone, op.Name)
 	if err != nil {
 		return fmt.Errorf("operation failed: %w", err)
 	}
 
 	fmt.Printf("Successfully added SSH key for user %s to instance %s\n", sshUsername, sshInstanceID)
 	return nil
-}
-
-func waitForOperation(service *compute.Service, project, zone, operation string) error {
-	ctx := context.Background()
-	for {
-		op, err := service.ZoneOperations.Get(project, zone, operation).Context(ctx).Do()
-		if err != nil {
-			return err
-		}
-
-		if op.Status == "DONE" {
-			if op.Error != nil {
-				var errMsgs []string
-				for _, e := range op.Error.Errors {
-					errMsgs = append(errMsgs, e.Message)
-				}
-				return fmt.Errorf("operation errors: %s", strings.Join(errMsgs, ", "))
-			}
-			return nil
-		}
-
-		// Poll every 2 seconds
-		fmt.Print(".")
-	}
 }

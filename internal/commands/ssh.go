@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"context"
@@ -7,12 +7,10 @@ import (
 	"os/exec"
 	"strings"
 
+	"gcutil/internal/auth"
+	"gcutil/internal/compute"
+
 	"github.com/spf13/cobra"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/cloudresourcemanager/v1"
-	"google.golang.org/api/compute/v1"
-	"google.golang.org/api/option"
 )
 
 var (
@@ -76,20 +74,13 @@ func runSSH(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load token, authenticate if needed
-	token, err := loadOrAuthToken(cmd)
+	token, err := auth.LoadOrAuthToken()
 	if err != nil {
 		return err
 	}
 
 	// Create OAuth2 config
-	config := &oauth2.Config{
-		ClientID:     "32555940559.apps.googleusercontent.com",
-		ClientSecret: "ZmssLNjJy2998hD4CTg2ejr2",
-		Endpoint:     google.Endpoint,
-		Scopes: []string{
-			compute.CloudPlatformScope,
-		},
-	}
+	config := auth.GetOAuth2Config()
 
 	// Create token source that automatically refreshes
 	tokenSource := config.TokenSource(ctx, token)
@@ -101,12 +92,12 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Token refresh failed: %v\n", err)
 		fmt.Println("Reauthenticating...")
 
-		if err := runAuth(cmd, nil); err != nil {
+		if err := auth.RunAuth(); err != nil {
 			return fmt.Errorf("reauthentication failed: %w", err)
 		}
 
 		// Load the new token
-		token, err = loadToken()
+		token, err = auth.LoadToken()
 		if err != nil {
 			return fmt.Errorf("failed to load token after reauthentication: %w", err)
 		}
@@ -121,96 +112,32 @@ func runSSH(cmd *cobra.Command, args []string) error {
 
 	// Save the refreshed token
 	if freshToken.AccessToken != token.AccessToken {
-		if err := saveToken(freshToken); err != nil {
+		if err := auth.SaveToken(freshToken); err != nil {
 			// Non-fatal - just log it
 			fmt.Fprintf(os.Stderr, "Warning: failed to save refreshed token: %v\n", err)
 		}
 	}
 
-	// Create compute service
-	computeService, err := compute.NewService(ctx, option.WithTokenSource(tokenSource))
+	// Create compute and CRM services
+	computeService, crmService, err := compute.CreateServices(ctx, config, token, auth.SaveToken)
 	if err != nil {
-		return fmt.Errorf("failed to create compute service: %w", err)
+		return err
 	}
 
-	// Get Cloud Resource Manager service
-	crmService, err := cloudresourcemanager.NewService(ctx, option.WithTokenSource(tokenSource))
+	// Determine which projects to search
+	projectsToSearch, err := resolveProjectsToSearch(crmService, projectName)
 	if err != nil {
-		return fmt.Errorf("failed to create resource manager service: %w", err)
-	}
-
-	var projectsToSearch []*cloudresourcemanager.Project
-
-	// If project is specified, resolve it
-	if projectName != "" {
-		// Get all projects to find matching name or ID
-		allProjects, err := getAllProjects(crmService)
-		if err != nil {
-			return fmt.Errorf("failed to list projects: %w", err)
-		}
-
-		// Find project by name or ID
-		for _, proj := range allProjects {
-			if proj.ProjectId == projectName || proj.Name == projectName {
-				projectsToSearch = []*cloudresourcemanager.Project{proj}
-				break
-			}
-		}
-
-		if len(projectsToSearch) == 0 {
-			return fmt.Errorf("project %s not found", projectName)
-		}
-	} else {
-		// Search all projects
-		projectsToSearch, err = getAllProjects(crmService)
-		if err != nil {
-			return fmt.Errorf("failed to list projects: %w", err)
-		}
+		return err
 	}
 
 	// Search for the instance
-	var foundInstance *compute.Instance
-	var foundProjectName string
-	var foundProjectID string
-
-	for _, proj := range projectsToSearch {
-		// Use aggregated list to search all zones at once
-		req := computeService.Instances.AggregatedList(proj.ProjectId)
-		err := req.Pages(ctx, func(page *compute.InstanceAggregatedList) error {
-			for _, instancesScopedList := range page.Items {
-				for _, instance := range instancesScopedList.Instances {
-					if instance.Name == instanceName {
-						foundInstance = instance
-						foundProjectName = proj.Name
-						foundProjectID = proj.ProjectId
-						return fmt.Errorf("found") // Break out of pagination
-					}
-				}
-			}
-			return nil
-		})
-
-		if foundInstance != nil {
-			break
-		}
-
-		// Ignore errors from individual projects (might not have compute API enabled)
-		if err != nil && err.Error() != "found" {
-			continue
-		}
-	}
-
-	if foundInstance == nil {
-		return fmt.Errorf("instance %s not found in any accessible project", instanceName)
+	foundInstance, foundProjectName, foundProjectID, err := compute.FindInstanceInProjects(ctx, computeService, instanceName, projectsToSearch)
+	if err != nil {
+		return err
 	}
 
 	// Get the external IP
-	var externalIP string
-	if len(foundInstance.NetworkInterfaces) > 0 {
-		if len(foundInstance.NetworkInterfaces[0].AccessConfigs) > 0 {
-			externalIP = foundInstance.NetworkInterfaces[0].AccessConfigs[0].NatIP
-		}
-	}
+	externalIP := compute.GetExternalIP(foundInstance)
 
 	if externalIP == "" {
 		return fmt.Errorf("instance %s (project: %s (%s)) has no external IP address", instanceName, foundProjectName, foundProjectID)

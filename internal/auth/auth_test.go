@@ -1,4 +1,4 @@
-package cmd
+package auth
 
 import (
 	"encoding/json"
@@ -20,19 +20,19 @@ func TestSaveAndLoadToken(t *testing.T) {
 	tmpFile := "test_token.json"
 	defer os.Remove(tmpFile)
 
-	// Override the getTokenFile function for testing
-	originalGetTokenFile := getTokenFile
+	// Override the GetTokenFile function for testing
+	originalGetTokenFile := GetTokenFile
 	defer func() {
-		getTokenFile = originalGetTokenFile
+		GetTokenFile = originalGetTokenFile
 	}()
-	getTokenFile = func() (string, error) {
+	GetTokenFile = func() (string, error) {
 		return tmpFile, nil
 	}
 
-	// Test saveToken
-	err := saveToken(testToken)
+	// Test SaveToken
+	err := SaveToken(testToken)
 	if err != nil {
-		t.Fatalf("saveToken failed: %v", err)
+		t.Fatalf("SaveToken failed: %v", err)
 	}
 
 	// Verify file exists
@@ -40,10 +40,10 @@ func TestSaveAndLoadToken(t *testing.T) {
 		t.Fatal("Token file was not created")
 	}
 
-	// Test loadToken
-	loadedToken, err := loadToken()
+	// Test LoadToken
+	loadedToken, err := LoadToken()
 	if err != nil {
-		t.Fatalf("loadToken failed: %v", err)
+		t.Fatalf("LoadToken failed: %v", err)
 	}
 
 	// Verify token contents
@@ -59,16 +59,16 @@ func TestSaveAndLoadToken(t *testing.T) {
 }
 
 func TestLoadTokenNotFound(t *testing.T) {
-	// Override the getTokenFile function for testing
-	originalGetTokenFile := getTokenFile
+	// Override the GetTokenFile function for testing
+	originalGetTokenFile := GetTokenFile
 	defer func() {
-		getTokenFile = originalGetTokenFile
+		GetTokenFile = originalGetTokenFile
 	}()
-	getTokenFile = func() (string, error) {
+	GetTokenFile = func() (string, error) {
 		return "nonexistent_token.json", nil
 	}
 
-	_, err := loadToken()
+	_, err := LoadToken()
 	if err == nil {
 		t.Fatal("Expected error when loading non-existent token file, got nil")
 	}
@@ -79,16 +79,16 @@ func TestSaveTokenInvalidPath(t *testing.T) {
 		AccessToken: "test-token",
 	}
 
-	// Override the getTokenFile function with an invalid path
-	originalGetTokenFile := getTokenFile
+	// Override the GetTokenFile function with an invalid path
+	originalGetTokenFile := GetTokenFile
 	defer func() {
-		getTokenFile = originalGetTokenFile
+		GetTokenFile = originalGetTokenFile
 	}()
-	getTokenFile = func() (string, error) {
+	GetTokenFile = func() (string, error) {
 		return "/nonexistent_directory/token.json", nil
 	}
 
-	err := saveToken(testToken)
+	err := SaveToken(testToken)
 	if err == nil {
 		t.Fatal("Expected error when saving to invalid path, got nil")
 	}
@@ -104,17 +104,17 @@ func TestTokenJSONFormat(t *testing.T) {
 	tmpFile := "test_token_format.json"
 	defer os.Remove(tmpFile)
 
-	originalGetTokenFile := getTokenFile
+	originalGetTokenFile := GetTokenFile
 	defer func() {
-		getTokenFile = originalGetTokenFile
+		GetTokenFile = originalGetTokenFile
 	}()
-	getTokenFile = func() (string, error) {
+	GetTokenFile = func() (string, error) {
 		return tmpFile, nil
 	}
 
 	// Save token
-	if err := saveToken(testToken); err != nil {
-		t.Fatalf("saveToken failed: %v", err)
+	if err := SaveToken(testToken); err != nil {
+		t.Fatalf("SaveToken failed: %v", err)
 	}
 
 	// Read raw JSON

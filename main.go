@@ -1,9 +1,9 @@
 package main
 
 import (
-	"gcutil/cmd"
+	"gcutil/internal/commands"
 )
 
 func main() {
-	cmd.Execute()
+	commands.Execute()
 }

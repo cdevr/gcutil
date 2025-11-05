@@ -1,4 +1,4 @@
-package cmd
+package compute
 
 import (
 	"bytes"
@@ -51,9 +51,9 @@ func TestGetZoneFromURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := getZoneFromURL(tt.url)
+			result := GetZoneFromURL(tt.url)
 			if result != tt.expected {
-				t.Errorf("getZoneFromURL(%s) = %s, want %s", tt.url, result, tt.expected)
+				t.Errorf("GetZoneFromURL(%s) = %s, want %s", tt.url, result, tt.expected)
 			}
 		})
 	}
@@ -84,9 +84,9 @@ func TestGetMachineTypeFromURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := getMachineTypeFromURL(tt.url)
+			result := GetMachineTypeFromURL(tt.url)
 			if result != tt.expected {
-				t.Errorf("getMachineTypeFromURL(%s) = %s, want %s", tt.url, result, tt.expected)
+				t.Errorf("GetMachineTypeFromURL(%s) = %s, want %s", tt.url, result, tt.expected)
 			}
 		})
 	}
@@ -95,7 +95,7 @@ func TestGetMachineTypeFromURL(t *testing.T) {
 func TestDisplayInstancesEmpty(t *testing.T) {
 	instances := []*compute.Instance{}
 	output := captureOutput(func() {
-		displayInstances(instances, "test-project")
+		DisplayInstances(instances, "test-project")
 	})
 
 	// Verify output contains expected message
@@ -136,7 +136,7 @@ func TestDisplayInstancesWithData(t *testing.T) {
 	}
 
 	output := captureOutput(func() {
-		displayInstances(instances, "test-project")
+		DisplayInstances(instances, "test-project")
 	})
 
 	// Verify output contains expected data
@@ -174,7 +174,7 @@ func TestDisplayInstancesNoNetworkInterface(t *testing.T) {
 	}
 
 	output := captureOutput(func() {
-		displayInstances(instances, "test-project")
+		DisplayInstances(instances, "test-project")
 	})
 
 	// Verify output contains VM name and status, but empty IPs
