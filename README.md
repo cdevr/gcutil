@@ -108,15 +108,29 @@ go test ./... -v
 
 ```
 gcutil/
-├── main.go              # Entry point
-├── cmd/
-│   ├── root.go          # Root command and CLI setup
-│   ├── auth.go          # Authentication command
-│   ├── auth_test.go     # Authentication tests
-│   ├── list_vms.go      # VM listing command
-│   └── list_vms_test.go # VM listing tests
-├── go.mod               # Go module definition
-└── README.md            # This file
+├── cmd
+│   └── gcutil
+│       └── main.go
+├── go.mod
+├── go.sum
+├── internal
+│   ├── auth
+│   │   ├── auth_test.go
+│   │   └── auth.go
+│   ├── commands
+│   │   ├── addkey.go
+│   │   ├── auth.go
+│   │   ├── helpers.go
+│   │   ├── list_vms.go
+│   │   ├── root.go
+│   │   ├── scp.go
+│   │   └── ssh.go
+│   └── compute
+│       ├── compute_test.go
+│       └── compute.go
+├── main.go
+├── README.md
+└── TODO
 ```
 
 ## License
